@@ -1,0 +1,8 @@
+{
+  "profiles": {
+    "GzipConsole": {
+      "commandName": "Project",
+      "commandLineArgs": "compress  C:\\Test\\1.cr2  C:\\Test\\1_1.cr2"
+    }
+  }
+}
