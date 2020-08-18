@@ -11,38 +11,42 @@ using System.Threading;
 
 namespace GzipOperator
 {
+    /// <summary>
+    /// Класс-стартер для сервиса
+    /// </summary>
     public static class Starter
     {
-
-
         public static IService Service;
         public static Reporter Reporter;
 
         public static TaskInfo ActualTaskInfo;
         public static SynchronizationContextService SyncContext;
 
-        private static Thread[] Threads;
+        internal static Thread[] Threads;
 
         private static Thread ReadThread;
         private static Thread WriteThread;
 
         private static bool IsSucces = true;
 
+        /// <summary>
+        /// Конфигурация сервиса
+        /// </summary>
+        /// <param name="args">Аргументы</param>
+        /// <param name="errorReporter"> Репортер</param>
         public static bool Configure(string[] args, Reporter errorReporter)
         {
             try
             {
                 Reporter = errorReporter;
-
-                ArgumentsParseService.Error += Reporter.ShowExceptionMessage;
-                ArgumentsParseService.Error += (x, s) => CheckError();
-                ArgumentsParseService.TryGetTaskInfo(args, ref ActualTaskInfo);
-
-
+                ActualTaskInfo = ArgumentsParseService.TryGetTaskInfo(args);
 
                 SyncContext = new SynchronizationContextService(ActualTaskInfo);
-                //SyncContext.Error += Reporter.ShowExceptionMessage;
+                SyncContext.Error += Reporter.ShowExceptionMessage;
+                SyncContext.Error += (x, s) => CheckException();
 
+                //Буду исходить из того, что имеется процессор, который имеет на каждое физическое ядро - два логических.
+                //Тогда создадим соответсвующее количество пототоков.
                 Threads = new Thread[Environment.ProcessorCount * 2];
 
                 if (ActualTaskInfo.TypeOfOperation == TypeOfOperation.Compress)
@@ -51,6 +55,8 @@ namespace GzipOperator
                     Service = new DecompressService(ref SyncContext);
 
                 Service.Error += Reporter.ShowExceptionMessage;
+                Service.Error += (x, s) => CheckException();
+
                 Service.StopInput += SyncContext.FinalInput;
                 Service.StopOutput += SyncContext.FinalOutput;
 
@@ -61,7 +67,6 @@ namespace GzipOperator
                     Threads[i] = new Thread(() => Service.Processing());
                 return true;
 
-
             }
             catch (Exception x)
             {
@@ -70,34 +75,41 @@ namespace GzipOperator
             }
         }
 
-
+        /// <summary>
+        /// Старт сервиса
+        /// </summary>
         public static bool Start()
         {
-            Stopwatch stopwatch = new Stopwatch();
-            stopwatch.Start();
-
-            ReadThread.Start();
-            for (int i = 0; i < Threads.Length; i++)
-                Threads[i].Start();
-            WriteThread.Start();
-
-            
-            WriteThread.Join();
-       
-            ReadThread.Join();
-            for (int i = 0; i < Threads.Length; i++)
-                Threads[i].Join();
-            stopwatch.Stop();
-
-            if (IsSucces)
+            try
             {
-                Reporter.ShowMessage($"Задача выполнена. Потраченное время : {stopwatch.Elapsed.ToString()}");
-                return true;
+                Stopwatch stopwatch = new Stopwatch();
+                stopwatch.Start();
+
+                ReadThread.Start();
+                for (int i = 0; i < Threads.Length; i++)
+                    Threads[i].Start();
+                WriteThread.Start();
+
+                WriteThread.Join();
+
+                for (int i = 0; i < Threads.Length; i++)
+                    Threads[i].Join();
+
+                ReadThread.Join();
+
+                stopwatch.Stop();
+                if (IsSucces)
+                {
+                    Reporter.ShowMessage($"Задача выполнена. Потраченное время : {stopwatch.Elapsed.ToString()}");
+                    return true;
+                }
+                return false;
             }
-            return false;
-
-
+            catch
+            {
+                return false;
+            }
         }
-        static void CheckError() => IsSucces = false;
+        static void CheckException() => IsSucces = false;
     }
 }

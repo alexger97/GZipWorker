@@ -20,13 +20,14 @@ namespace GzipOperator.Service
         private volatile bool InputFinal = false;
         private volatile bool OutputFinal = false;
 
+        public event ErrorDelegate Error;
+
         public SynchronizationContextService(TaskInfo taskinfo)
         {
             InputQueue = new Queue<KeyValuePair<int, byte[]>>();
 
             OutputQueue = new Queue<KeyValuePair<int, byte[]>>();
         }
-
 
         /// <summary>
         /// Функция помещения блока байт в очередь
@@ -42,15 +43,37 @@ namespace GzipOperator.Service
             {
                 lock (DestanationQueue)
                 {
+                    if (!Check())
+                        return false;
+                    while (DestanationQueue.Count >= Starter.Threads.Length)
+                        Monitor.Wait(DestanationQueue);
+
+                    if (!Check())
+                        return false;
+
                     DestanationQueue.Enqueue(new KeyValuePair<int, byte[]>(block_number, block));
+
+                    Monitor.Pulse(DestanationQueue);
+
+                    return true;
                 }
             }
             catch (Exception x)
             {
-                Console.WriteLine("Ошибка при установке блока в очередь. Подробно: \n" + x.ToString());
+                Error("Установка блока в очередь", x);
                 return false;
             }
-            return true;
+
+            bool Check()
+            {
+                if (typeOfQueue == TypeOfQueue.Input && InputFinal == true)
+                    return false;
+
+                if (typeOfQueue == TypeOfQueue.Output && OutputFinal == true)
+                    return false;
+
+                return true;
+            }
         }
 
         /// <summary>
@@ -67,14 +90,10 @@ namespace GzipOperator.Service
             KeyValuePair<int, byte[]> queue_element;
             block = null;
             block_number = 0;
-            //while (SourceQueue.Count == 0)
-            //    if (!Check())
-            //        break;
 
             try
             {
                 Monitor.Enter(SourceQueue);
-
                 while (SourceQueue.Count == 0)
                     if (!Check())
                         return false;
@@ -91,11 +110,10 @@ namespace GzipOperator.Service
                 }
                 else
                     return false;
-
             }
             catch (Exception x)
             {
-                Console.WriteLine("Ошибка при получении блока из очереди. Подробно: \n" + x.ToString());
+                Error("Получение блока из очереди", x);
                 return false;
             }
             finally
@@ -107,13 +125,11 @@ namespace GzipOperator.Service
             {
                 if (typeOfQueue == TypeOfQueue.Input && InputFinal == true)
                     return false;
-
                 if (typeOfQueue == TypeOfQueue.Output && OutputFinal == true)
                     return false;
 
                 return true;
             }
-
         }
 
         #region Final_Signal
@@ -134,7 +150,6 @@ namespace GzipOperator.Service
                 OutputFinal = true;
                 Monitor.PulseAll(OutputQueue);
             }
-
         }
         #endregion
     }

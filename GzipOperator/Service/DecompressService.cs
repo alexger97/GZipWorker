@@ -16,7 +16,9 @@ namespace GzipOperator.Service
     class DecompressService : IService
     {
         private int original_count_parts;
-        private int process_counter = 0;
+        private long original_lenght;
+        private int process_counter;
+
         private SynchronizationContextService SyncService;
 
         public event FinalDelegate StopInput;
@@ -40,6 +42,8 @@ namespace GzipOperator.Service
                 try
                 {
                     original_count_parts = br.ReadUInt16();
+                    original_lenght = br.ReadInt64();
+
                     for (int i = 0; i < original_count_parts; i++)
                     {
                         int block_number = br.ReadInt32();
@@ -47,7 +51,9 @@ namespace GzipOperator.Service
                         byte[] block = br.ReadBytes(block_length);
 
                         if (SyncService.SetBlock(block, block_number, Model.TypeOfQueue.Input))
-                            InputProgress(i / original_count_parts);
+                            InputProgress(i * 100 / original_count_parts);
+                        else
+                            break;
                     }
                     StopInput();
                 }
@@ -66,8 +72,19 @@ namespace GzipOperator.Service
         public void WriteFile(FileInfo outputfile)
         {
             byte[] block = null;
-            int block_number = 0;
+            int block_number = default;
             int write_counter = default;
+
+            var driveInfo = new DriveInfo(outputfile.Directory.Root.FullName);
+            if (driveInfo.IsReady)
+            {
+                if (driveInfo.AvailableFreeSpace < original_lenght)
+                    throw new System.IO.IOException($"Недостаточно места на диске {driveInfo.Name}");
+                if (driveInfo.DriveFormat == "FAT32" && original_lenght > 4294967295)
+                    throw new System.IO.IOException("Ограничение на запись данного объема данных в FAT32");
+            }
+            else
+                throw new System.IO.IOException($"Диск {driveInfo.Name} не готов для записи");
 
             Dictionary<long, byte[]> UnsortedBuffer = new Dictionary<long, byte[]>();
 
@@ -89,7 +106,7 @@ namespace GzipOperator.Service
                         if (UnsortedBuffer.ContainsKey(write_counter))
                         {
                             br.Write(UnsortedBuffer[write_counter]);
-                            OutputProgress(write_counter / original_count_parts);
+                            OutputProgress(write_counter * 100 / original_count_parts);
                             UnsortedBuffer.Remove(write_counter);
                             write_counter++;
                         }
@@ -102,6 +119,7 @@ namespace GzipOperator.Service
                     StopOutput();
                     br.Close();
                     outputfile.Delete();
+                    return;
                 }
             }
         }
@@ -130,10 +148,8 @@ namespace GzipOperator.Service
                         else
                         {
                             Interlocked.Increment(ref process_counter);
-                            ProcessingProgress(process_counter / original_count_parts);
+                            ProcessingProgress(process_counter * 100 / original_count_parts);
                         }
-
-
                         if (process_counter == original_count_parts)
                         {
                             StopOutput();
@@ -149,6 +165,7 @@ namespace GzipOperator.Service
                 Error?.Invoke("Обработка данных", x);
                 StopOutput();
                 StopInput();
+                return;
             }
         }
     }

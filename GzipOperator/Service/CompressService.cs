@@ -15,7 +15,8 @@ namespace GzipOperator.Service
     /// </summary>
     class CompressService : IService
     {
-        private int process_counter = 0;
+        private int process_counter;
+        private long original_long;
 
         private SynchronizationContextService SyncService;
 
@@ -34,23 +35,24 @@ namespace GzipOperator.Service
         /// Функция для чтения сжатого файла
         /// </summary>
         /// <param name="inputfile">Исходный файл</param>
-        public void ReadFile(FileInfo inputfile/*, SynchronizationContextService synchronizationContext*/)
+        public void ReadFile(FileInfo inputfile)
         {
             using (BinaryReader br = new BinaryReader(inputfile.OpenRead()))
             {
                 try
                 {
+                    original_long = inputfile.Length;
                     for (int i = 0; i < TaskInfo.START_BLOCK_COUNT; i++)
                     {
                         byte[] block = br.ReadBytes(GZIPOperation.SIZE_BUFFER);
 
                         if (SyncService.SetBlock(block, i, TypeOfQueue.Input))
                         {
-                            
-                            double c = (double) (i / TaskInfo.START_BLOCK_COUNT);
+                            double c = (i * 100 / TaskInfo.START_BLOCK_COUNT);
                             InputProgress?.Invoke(c);
                         }
-                            
+                        else
+                            return;
                     }
                     StopInput();
                 }
@@ -59,6 +61,7 @@ namespace GzipOperator.Service
                     Error?.Invoke("Чтение из файла", x);
                     StopInput();
                     br.Close();
+                    return;
                 }
             }
         }
@@ -67,17 +70,22 @@ namespace GzipOperator.Service
         /// Функция для записи файла  со сжатой последовательностью байт
         /// </summary>
         /// <param name="outputfile">Целевой файл</param>
-        public void WriteFile(FileInfo outputfile/*, SynchronizationContextService synchronizationContext*/)
+        public void WriteFile(FileInfo outputfile)
         {
             byte[] block = null;
             int block_number = 0;
             int write_counter = default;
+
+            var driveInfo = new DriveInfo(outputfile.Directory.Root.FullName);
+            if (!driveInfo.IsReady)
+                throw new System.IO.IOException($"Диск {driveInfo.Name} не готов для записи");
 
             using (BinaryWriter br = new BinaryWriter(outputfile.Open(FileMode.Create, FileAccess.Write)))
             {
                 try
                 {
                     br.Write(TaskInfo.START_BLOCK_COUNT);
+                    br.Write(original_long);
                     while (write_counter < TaskInfo.START_BLOCK_COUNT)
                     {
                         if (SyncService.GetBlock(out block, out block_number, TypeOfQueue.Output))
@@ -89,11 +97,8 @@ namespace GzipOperator.Service
                             br.Write(block.Length);
                             br.Write(block);
                             write_counter++;
-                            OutputProgress?.Invoke((double)(write_counter / TaskInfo.START_BLOCK_COUNT));
-
+                            OutputProgress?.Invoke((write_counter * 100 / TaskInfo.START_BLOCK_COUNT));
                         }
-                        else
-                            break;
                         if (write_counter == TaskInfo.START_BLOCK_COUNT)
                             break;
                     }
@@ -105,6 +110,7 @@ namespace GzipOperator.Service
                     StopOutput();
                     br.Close();
                     outputfile.Delete();
+                    return;
                 }
             }
         }
@@ -131,7 +137,7 @@ namespace GzipOperator.Service
                         else
                         {
                             Interlocked.Increment(ref process_counter);
-                            ProcessingProgress?.Invoke((double)(process_counter / TaskInfo.START_BLOCK_COUNT));
+                            ProcessingProgress?.Invoke((process_counter * 100 / TaskInfo.START_BLOCK_COUNT));
                         }
 
                         if (process_counter == TaskInfo.START_BLOCK_COUNT)

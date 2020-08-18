@@ -9,15 +9,17 @@ namespace GzipOperator.Model
 {
 
     /// <summary> Структура, описывающая поступившую задачу   </summary>
-
     public struct TaskInfo
     {
         /// <summary> Входящий файл  </summary>  
         public FileInfo FileInputInfo { get; set; }
+
         /// <summary> Файл, содержащий обработаннаю последовательность байт  </summary>  
         public FileInfo FileOutputInfo { get; set; }
+
         /// <summary> Тип операции  </summary>  
         public TypeOfOperation TypeOfOperation { get; set; }
+
         /// <summary> Количество блоков  </summary>  
         public static ushort START_BLOCK_COUNT { get; set; }
 
@@ -29,7 +31,7 @@ namespace GzipOperator.Model
             GetStartBlockCount(file_info1);
         }
 
-        //Расчет количества блоков 
+        /// <summary>Расчет количества блоков  </summary>  
         void GetStartBlockCount(FileInfo fileInfo)
         {
             START_BLOCK_COUNT = (ushort)(fileInfo.Length / GZIPOperation.SIZE_BUFFER);
